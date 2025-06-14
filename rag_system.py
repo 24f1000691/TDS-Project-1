@@ -4,34 +4,50 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 from openai import OpenAI
 
-# Load environment variables
+# Load environment variables (for local development)
 load_dotenv()
 
 # --- Configuration ---
-# This will now be your AIPipe API Key, as specified in your .env
-OPENAI_API_KEY = os.getenv("API_KEY")
+# Use OPENAI_API_KEY for the actual OpenAI client initialization
+# and ensure this is what's set in Vercel for OpenAI
+# If API_KEY is specifically for AIPipe's authentication:
+# AIPipe_API_KEY = os.getenv("API_KEY") # Consider renaming to AIPipe_API_KEY if distinct
+
+# Ensure OPENAI_API_KEY is read correctly (either from system env or .env)
+# The OpenAI client will *prefer* OPENAI_API_KEY from environment if not passed explicitly.
+# Since you're passing it, we'll keep the name matching the passed variable.
+OPENAI_API_KEY_FOR_CLIENT = os.getenv("API_KEY") # This maps Vercel's API_KEY to what OpenAI client expects for its api_key param
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
 
 # Ensure all necessary environment variables are set
-if not all([OPENAI_API_KEY, PINECONE_API_KEY, PINECONE_ENVIRONMENT, PINECONE_INDEX_NAME]):
-    raise ValueError("Missing one or more environment variables. Check your .env file.")
+if not all([OPENAI_API_KEY_FOR_CLIENT, PINECONE_API_KEY, PINECONE_ENVIRONMENT, PINECONE_INDEX_NAME]):
+    # This error message is for local testing. On Vercel, it might not print.
+    raise ValueError("Missing one or more environment variables. Check your .env file or Vercel settings.")
+
+# --- Initialize Pinecone Client (MOVED TO TOP TO BE DEFINED BEFORE USE) ---
+try:
+    pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+    print("Pinecone client initialized successfully.") # For debugging
+except Exception as e:
+    print(f"Error initializing Pinecone client: {e}")
+    raise
 
 # Initialize OpenAI client, pointing to AIPipe's base URL
 openai_client = OpenAI(
-    api_key=OPENAI_API_KEY,
-    base_url="https://aipipe.org/openai/v1" # <--- THIS IS THE KEY CHANGE!
+    api_key=OPENAI_API_KEY_FOR_CLIENT, # Use the correctly named variable
+    base_url="https://aipipe.org/openai/v1" # This points to AIPipe
 )
+print("OpenAI client initialized successfully with AIPipe base URL.") # For debugging
+
 
 # --- Constants ---
 # IMPORTANT: These model names MUST BE AVAILABLE AND SUPPORTED BY AIPipe/AIProxy
 # for their OpenAI-compatible proxy endpoint.
-# 'text-embedding-3-small' is mentioned in your similarity example, which is a good sign.
-# Confirm if 'gpt-4o' and 'gpt-3.5-turbo' are also available via AIPipe.
 EMBEDDING_MODEL = "text-embedding-3-small"
-LLM_MODEL_VISION = "gpt-4o" # Check if AIPipe supports gpt-4o or similar vision models
-LLM_MODEL_TEXT_ONLY = "gpt-3.5-turbo" # Check if AIPipe supports gpt-3.5-turbo
+LLM_MODEL_VISION = "gpt-4o" # Confirm AIPipe supports this
+LLM_MODEL_TEXT_ONLY = "gpt-3.5-turbo" # Confirm AIPipe supports this
 
 MAX_TOKENS_FOR_LLM_VISION = 4096
 RESERVED_QUERY_TOKENS = 500
@@ -53,7 +69,7 @@ def retrieve_documents(query_embedding: list[float], top_k: int = 5) -> list[dic
     Retrieves the top_k most similar document chunks from Pinecone.
     """
     try:
-        index = pc.Index(PINECONE_INDEX_NAME) # pc needs to be defined
+        index = pc.Index(PINECONE_INDEX_NAME) # pc is now defined
         query_results = index.query(
             vector=query_embedding,
             top_k=top_k,
@@ -86,7 +102,6 @@ def generate_llm_response(query: str, retrieved_documents: list[dict], image_dat
     Dynamically prunes documents to fit within the LLM's context window.
     """
 
-    # Choose model based on whether image data is present
     llm_model_to_use = LLM_MODEL_VISION if image_data_list else LLM_MODEL_TEXT_ONLY
     max_tokens_for_llm_effective = MAX_TOKENS_FOR_LLM_VISION if image_data_list else MAX_TOKENS_FOR_LLM_VISION
 
@@ -112,6 +127,7 @@ Context:"""
 
         if current_tokens + doc_tokens < max_tokens_for_llm_effective:
             context_str_parts.append(doc_for_llm)
+            # Ensure only unique sources are added if desired, otherwise just append
             sources.append({"title": doc_title, "url": doc_url})
             current_tokens += doc_tokens
         else:
@@ -145,10 +161,12 @@ Context:"""
             max_tokens=1000
         )
         llm_answer = response.choices[0].message.content.strip()
+        # Ensure 'sources' key is present even if empty
         return {"answer": llm_answer, "sources": sources}
     except Exception as e:
         print(f"Error generating LLM response: {e}")
-        raise
+        # Return a fallback answer and empty sources on error
+        return {"answer": "I'm sorry, I encountered an error while trying to generate a response.", "sources": []}
 
 # --- Main RAG Orchestration Function ---
 def generate_rag_answer(user_query: str, image_data_list: list[str] = None) -> dict:
@@ -169,7 +187,5 @@ def generate_rag_answer(user_query: str, image_data_list: list[str] = None) -> d
         return llm_output
     except Exception as e:
         print(f"An error occurred in RAG process: {e}")
-        raise
-
-# Initialize Pinecone client (moved here to ensure it's defined before retrieve_documents uses it)
-pc = Pinecone(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
+        # Return a consistent error message and empty sources in case of top-level RAG error
+        return {"answer": "I'm sorry, an internal error occurred in the RAG system.", "sources": []}
