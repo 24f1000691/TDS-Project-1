@@ -16,7 +16,7 @@ load_dotenv()
 # Ensure OPENAI_API_KEY is read correctly (either from system env or .env)
 # The OpenAI client will *prefer* OPENAI_API_KEY from environment if not passed explicitly.
 # Since you're passing it, we'll keep the name matching the passed variable.
-OPENAI_API_KEY_FOR_CLIENT = os.getenv("API_KEY") # This maps Vercel's API_KEY to what OpenAI client expects for its api_key param
+OPENAI_API_KEY_FOR_CLIENT = os.getenv("OPENAI_API_KEY") # This maps Vercel's API_KEY to what OpenAI client expects for its api_key param
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENVIRONMENT = os.getenv("PINECONE_ENVIRONMENT")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME")
