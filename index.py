@@ -39,3 +39,11 @@ async def query_knowledge_base(request: QueryRequest):
 async def health_check():
     return {"status": "ok", "message": "RAG API is running"}
 
+# Root route for submission system/browser check
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <h2>Virtual TA Backend is Running ✅</h2>
+    <p>Use POST /ask to send questions.<br>
+    Or check health at <a href="/health">/health</a>.</p>
+    """
